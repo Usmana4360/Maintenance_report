@@ -2,7 +2,8 @@ import streamlit as st
 import google.generativeai as genai
 import pandas as pd
 import os
-
+from openpyxl import load_workbook
+from openpyxl.styles import Font, Border, Side, Alignment
 # Configure Google Gemini API Key
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
@@ -38,17 +39,71 @@ def generate_report(unit, machine, technician_name, issue):
 
 # Function to save report in Excel
 def save_to_excel(unit, machine, technician_name, issue, report):
-    """Saves the generated report to an Excel file."""
-    new_data = pd.DataFrame([[unit, machine, technician_name, issue, report]], 
-                            columns=["Unit", "Machine", "Technician", "Issue", "Report"])
+    """Saves the generated report to an Excel file with structured formatting."""
+
+    columns = ["Date", "Unit", "Machine", "Technician Name", "Issue", "Generated Report"]
+
+    new_data = pd.DataFrame([{
+        "Date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Unit": unit,
+        "Machine": machine,
+        "Technician Name": technician_name,
+        "Issue": issue,
+        "Generated Report": report
+    }])
 
     if os.path.exists(EXCEL_FILE):
-        existing_data = pd.read_excel(EXCEL_FILE)
-        updated_data = pd.concat([existing_data, new_data], ignore_index=True)
+        try:
+            existing_data = pd.read_excel(EXCEL_FILE, engine="openpyxl")
+            if not all(col in existing_data.columns for col in columns):
+                existing_data = existing_data[columns]
+            updated_data = pd.concat([existing_data, new_data], ignore_index=True)
+        except Exception as e:
+            print(f"Error reading Excel file: {e}")
+            updated_data = new_data
     else:
         updated_data = new_data
 
-    updated_data.to_excel(EXCEL_FILE, index=False)
+    # Save Data
+    with pd.ExcelWriter(EXCEL_FILE, engine="openpyxl", mode="w") as writer:
+        updated_data.to_excel(writer, index=False, sheet_name="Work Orders")
+
+    # Formatting Excel File
+    wb = load_workbook(EXCEL_FILE)
+    ws = wb.active
+
+    # Apply Styling
+    thin_border = Border(
+        left=Side(style="thin"),
+        right=Side(style="thin"),
+        top=Side(style="thin"),
+        bottom=Side(style="thin")
+    )
+
+    for row in ws.iter_rows():
+        for cell in row:
+            cell.border = thin_border
+            cell.alignment = Alignment(wrap_text=True, vertical="center")
+
+    # Auto-adjust column widths
+    for col in ws.columns:
+        max_length = 0
+        col_letter = col[0].column_letter  # Get column letter
+        for cell in col:
+            try:
+                max_length = max(max_length, len(str(cell.value)))
+            except:
+                pass
+        ws.column_dimensions[col_letter].width = max_length + 2  # Add padding
+
+    # Make header bold
+    for cell in ws[1]:  
+        cell.font = Font(bold=True)
+
+    # Save the formatted file
+    wb.save(EXCEL_FILE)
+
+    print("✅ Report successfully saved with proper formatting!")
 
 # Function to load existing reports
 def load_reports():
